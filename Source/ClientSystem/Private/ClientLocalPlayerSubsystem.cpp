@@ -66,6 +66,10 @@ void UClientLocalPlayerSubsystem::InitUserInfo()
 		PersonaUserInfo.Name = UClientSteamBPLibrary::GetPersonaName();
 		PersonaUserInfo.IPCountry = UClientSteamBPLibrary::GetIPCountry();
 	}
+	else
+	{
+		PersonaUserInfo.Name = TEXT("UnrealEditor");
+	}
 }
 
 void UClientLocalPlayerSubsystem::ClientTick()
@@ -84,6 +88,11 @@ void UClientLocalPlayerSubsystem::ClientTick()
 	}
 }
 
+UClientObjectController* UClientLocalPlayerSubsystem::GetClientObjectController()
+{
+	return Client ? Cast<UClientObjectController>(Client->GetController()) : nullptr;
+}
+
 void UClientLocalPlayerSubsystem::RegisterAccount(const FClientUserInfo& InClientUserInfo)
 {
 	PersonaUserInfo = InClientUserInfo;
@@ -99,6 +108,7 @@ void UClientLocalPlayerSubsystem::RegisterAccount(const FClientUserInfo& InClien
 				PersonaUserInfo.IPCountry,
 				PersonaUserInfo.Platform
 			);
+			bEnableConnectWait = true;
 		}
 	}
 }
@@ -112,6 +122,7 @@ void UClientLocalPlayerSubsystem::LoginGate(const FString& Account, const FStrin
 		if (auto Channel = Client->GetController()->GetChannel())
 		{
 			NETCHANNEL_PROTOCOLS_SEND(P_Login, PersonaUserInfo.Account, PersonaUserInfo.Password);
+			bEnableConnectWait = true;
 		}
 	}
 }
@@ -123,6 +134,7 @@ void UClientLocalPlayerSubsystem::LoginHall()
 		if (auto Channel = Client->GetController()->GetChannel())
 		{
 			NETCHANNEL_PROTOCOLS_SEND(P_Login, PersonaUserInfo.Account);
+			bEnableConnectWait = true;
 		}
 	}
 }
@@ -157,15 +169,13 @@ void UClientLocalPlayerSubsystem::JoinHallCallback(bool bWasSuccess)
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("Client Join Gate Failed, try join again..."));
+		if (++ReconnectTimes > ReconnectTimesThreshold)
+		{
+			OnClientLoginComplete.Broadcast(false);
+			return;
+		}
 		if (Client && Client->GetLocalConnection().IsValid())
 		{
-			if (++ReconnectTimes > ReconnectTimesThreshold)
-			{
-				OnClientLoginComplete.Broadcast(false);
-				return;
-			}
-
 			FTimerHandle TimerHandle;
 			GetWorld()->GetTimerManager().SetTimer(
 				TimerHandle,
@@ -291,6 +301,7 @@ void UClientLocalPlayerSubsystem::RecvGateCallback(uint32 ProtocolNumber, FNetCh
 			break;
 		}
 	}
+	bEnableConnectWait = false;
 }
 
 void UClientLocalPlayerSubsystem::RecvHallCallback(uint32 ProtocolNumber, FNetChannelBase* Channel)
@@ -325,6 +336,7 @@ void UClientLocalPlayerSubsystem::RecvHallCallback(uint32 ProtocolNumber, FNetCh
 			break;
 		}
 	}
+	bEnableConnectWait = false;
 }
 
 

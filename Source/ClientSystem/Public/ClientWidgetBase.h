@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
-#include "Core/ClientWorkType.h"
+#include "Definition/ClientWorkType.h"
 #include "ClientWidgetBase.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FOnClientWidgetDestructDelegate);

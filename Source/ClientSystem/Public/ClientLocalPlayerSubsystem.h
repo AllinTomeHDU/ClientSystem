@@ -5,11 +5,12 @@
 #include "CoreMinimal.h"
 #include "Subsystems/LocalPlayerSubsystem.h"
 #include "DS_NetChannel/Core/NetChannelType.h"
-#include "Core/ClientWorkType.h"
+#include "Definition/ClientWorkType.h"
 #include "ClientLocalPlayerSubsystem.generated.h"
 
 class FNetChannelManager;
 class FNetChannelBase;
+class UClientObjectController;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FClientJoinGateCompleteDelegate, const bool);
 
@@ -46,6 +47,10 @@ public:
 	FClientLoginCompleteDelegate		OnClientLoginComplete;
 
 	FClientTmpMessageDelegate			OnClientTmpMessage;
+
+public:
+	UFUNCTION(BlueprintPure)
+	UClientObjectController* GetClientObjectController();
 
 	UFUNCTION(BlueprintCallable)
 	void RegisterAccount(const FClientUserInfo& InClientUserInfo);

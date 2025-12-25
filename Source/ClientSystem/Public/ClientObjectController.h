@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Core/ClientWorkType.h"
+#include "Definition/ClientWorkType.h"
 #include "DS_NetChannel/UObject/NetChannelController.h"
 #include "DS_NetChannel/Core/NetChannelProtocols.h"
 #include "DS_NetChannel/Core/NetChannelType.h"
@@ -34,6 +34,7 @@ protected:
 	virtual void RecvProtocol(uint32 InProtocol) override;
 
 private:
+	UPROPERTY(BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	FClientUserAssets ClientUserAssets;
 
 public:
