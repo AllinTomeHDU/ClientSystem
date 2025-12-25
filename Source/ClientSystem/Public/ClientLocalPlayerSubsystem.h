@@ -11,13 +11,18 @@
 class FNetChannelManager;
 class FNetChannelBase;
 
-DECLARE_MULTICAST_DELEGATE(FClientJoinGateCompleteDelegate);
+DECLARE_MULTICAST_DELEGATE_OneParam(FClientJoinGateCompleteDelegate, const bool);
 
 DECLARE_MULTICAST_DELEGATE(FClientAccountAlreadyExitsDelegate);
 DECLARE_MULTICAST_DELEGATE_OneParam(FClientRegisterCompleteDelegate, const bool);
 
 DECLARE_MULTICAST_DELEGATE(FClientAbsentAccountDelegate);
+DECLARE_MULTICAST_DELEGATE(FClientAbnormalAccountDelegate);
+DECLARE_MULTICAST_DELEGATE(FClientIncorrectPasswordDelegate);
+DECLARE_MULTICAST_DELEGATE(FClientVerificationErrorDelegate);
 DECLARE_MULTICAST_DELEGATE_OneParam(FClientLoginCompleteDelegate, const bool);
+
+DECLARE_MULTICAST_DELEGATE_TwoParams(FClientTmpMessageDelegate, const FString&, const FString&);
 
 
 /**
@@ -35,24 +40,27 @@ public:
 	FClientRegisterCompleteDelegate		OnClientRegisterComplete;
 
 	FClientAbsentAccountDelegate		OnClientAbsentAccount;
+	FClientAbnormalAccountDelegate		OnClientAbnormalAccount;
+	FClientIncorrectPasswordDelegate	OnClientIncorrectPassword;
+	FClientVerificationErrorDelegate	OnClientVerificationError;
 	FClientLoginCompleteDelegate		OnClientLoginComplete;
+
+	FClientTmpMessageDelegate			OnClientTmpMessage;
 
 	UFUNCTION(BlueprintCallable)
 	void RegisterAccount(const FClientUserInfo& InClientUserInfo);
 
 	UFUNCTION(BlueprintCallable)
-	void LoginServer(const FString& Account, const FString& Password, const FString& Platform = TEXT("NULL"));
+	void LoginGate(const FString& Account, const FString& Password);
 
 protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 
-private:
+	void InitUserInfo();
 	void ClientTick();
 
-	void TryRegister();
-
-	void TryLoginGate();
-	void TryLoginHall();
+private:
+	void LoginHall();
 
 	void JoinGateCallback(bool bWasSuccess);
 	void JoinHallCallback(bool bWasSuccess);
@@ -72,8 +80,9 @@ private:
 	int32 ReconnectTimes{ 0 };
 	int32 ReconnectTimesThreshold{ 3 };
 
-	float LoginWaitTime{ 0.f };
-	float LoginWaitTimeTreshold{ 5.f };
+	bool bEnableConnectWait{ true };
+	float ConnectWaitTime{ 0.f };
+	float ConnectWaitTimeTreshold{ 5.f };
 
 	UPROPERTY(BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	bool bIsLoginComplete{ false };

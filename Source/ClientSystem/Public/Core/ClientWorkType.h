@@ -23,10 +23,10 @@ struct CLIENTSYSTEM_API FClientUserInfo
 	FString Name;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FString IPCountry;
+	FString IPCountry{ TEXT("CN") };
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FString Platform;
+	FString Platform{ TEXT("NULL") };
 };
 
 USTRUCT(BlueprintType)

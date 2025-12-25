@@ -38,6 +38,10 @@ public class ClientSystem : ModuleRules
 				"CoreUObject",
 				"Engine",
                 "XmlParser",
+				"UMG",
+                "OnlineSubsystem",
+                "OnlineSubsystemSteam",
+                "Steamworks"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

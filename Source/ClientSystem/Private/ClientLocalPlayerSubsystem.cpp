@@ -11,6 +11,8 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "TimerManager.h"
 
+#include "OnlineSubsystem.h"
+#include "Steam/ClientSteamBPLibrary.h"
 
 
 void UClientLocalPlayerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -51,51 +53,40 @@ void UClientLocalPlayerSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 			true
 		);
 	}
+
+	InitUserInfo();
+}
+
+void UClientLocalPlayerSubsystem::InitUserInfo()
+{
+	PersonaUserInfo.Platform = IOnlineSubsystem::Get()->GetSubsystemName().ToString();
+	if (PersonaUserInfo.Platform == TEXT("STEAM"))
+	{
+		PersonaUserInfo.Account = UClientSteamBPLibrary::GetSteamID();
+		PersonaUserInfo.Name = UClientSteamBPLibrary::GetPersonaName();
+		PersonaUserInfo.IPCountry = UClientSteamBPLibrary::GetIPCountry();
+	}
 }
 
 void UClientLocalPlayerSubsystem::ClientTick()
 {
 	Client->Tick(TickDelta);
 
-	//if (!bIsLoginComplete)
-	//{
-	//	LoginWaitTime += TickDelta;
-	//	if (LoginWaitTime > LoginWaitTimeTreshold)
-	//	{
-	//		OnClientLoginComplete.Broadcast(false);
-	//		bIsLoginComplete = true;
-	//	}
-	//}
+	// 避免因长时间收不到服务器发送的信号而卡死在登录界面
+	if (!bIsLoginComplete && bEnableConnectWait)
+	{
+		ConnectWaitTime += TickDelta;
+		if (ConnectWaitTime > ConnectWaitTimeTreshold)
+		{
+			OnClientLoginComplete.Broadcast(false);
+			bIsLoginComplete = true;
+		}
+	}
 }
 
 void UClientLocalPlayerSubsystem::RegisterAccount(const FClientUserInfo& InClientUserInfo)
 {
 	PersonaUserInfo = InClientUserInfo;
-	TryRegister();
-}
-
-void UClientLocalPlayerSubsystem::LoginServer(const FString& Account, const FString& Password, const FString& Platform)
-{
-	PersonaUserInfo.Account = Account;
-	PersonaUserInfo.Password = Password;
-	PersonaUserInfo.Platform = Platform;
-	TryLoginGate();
-}
-
-
-void UClientLocalPlayerSubsystem::TryLoginGate()
-{
-	if (Client && Client->GetController())
-	{
-		if (auto Channel = Client->GetController()->GetChannel())
-		{
-			NETCHANNEL_PROTOCOLS_SEND(P_Login, PersonaUserInfo.Account, PersonaUserInfo.Password);
-		}
-	}
-}
-
-void UClientLocalPlayerSubsystem::TryRegister()
-{
 	if (Client && Client->GetController())
 	{
 		if (auto Channel = Client->GetController()->GetChannel())
@@ -112,7 +103,20 @@ void UClientLocalPlayerSubsystem::TryRegister()
 	}
 }
 
-void UClientLocalPlayerSubsystem::TryLoginHall()
+void UClientLocalPlayerSubsystem::LoginGate(const FString& Account, const FString& Password)
+{
+	PersonaUserInfo.Account = Account;
+	PersonaUserInfo.Password = Password;
+	if (Client && Client->GetController())
+	{
+		if (auto Channel = Client->GetController()->GetChannel())
+		{
+			NETCHANNEL_PROTOCOLS_SEND(P_Login, PersonaUserInfo.Account, PersonaUserInfo.Password);
+		}
+	}
+}
+
+void UClientLocalPlayerSubsystem::LoginHall()
 {
 	if (Client && Client->GetController())
 	{
@@ -125,40 +129,31 @@ void UClientLocalPlayerSubsystem::TryLoginHall()
 
 void UClientLocalPlayerSubsystem::JoinGateCallback(bool bWasSuccess)
 {
-	if (bWasSuccess)
+	// Steam、Epic等平台，可在通过认证之后自动登录，其他的平台可能需要输入账户密码登录
+	if (PersonaUserInfo.Platform == TEXT("STEAM"))
 	{
-		OnClientJoinGateComplete.Broadcast();
-		ReconnectTimes = 0;
-		LoginWaitTime = 0;
+		LoginGate(PersonaUserInfo.Account, PersonaUserInfo.Password);
+		OnClientTmpMessage.Broadcast(TEXT("Logining in..."), TEXT("Success"));
 	}
 	else
 	{
-		if (++ReconnectTimes > ReconnectTimesThreshold)
-		{
-			OnClientLoginComplete.Broadcast(false);
-			return;
-		}
-
-		if (Client && Client->GetLocalConnection().IsValid())
-		{
-			FTimerHandle TimerHandle;
-			GetWorld()->GetTimerManager().SetTimer(
-				TimerHandle,
-				[this]() { Client->GetLocalConnection()->Verify(); },
-				1.f,
-				false
-			);
-		}
+		// 手动输入账号
+		OnClientJoinGateComplete.Broadcast(bWasSuccess);
+		bEnableConnectWait = false;
 	}
+	ReconnectTimes = 0;
+	ConnectWaitTime = 0;
+
+	// Join失败，原因目前仅可能是Client和Server版本不一致
 }
 
 void UClientLocalPlayerSubsystem::JoinHallCallback(bool bWasSuccess)
 {
 	if (bWasSuccess)
 	{
-		TryLoginHall();
+		LoginHall();
 		ReconnectTimes = 0;
-		LoginWaitTime = 0;
+		ConnectWaitTime = 0;
 	}
 	else
 	{
@@ -186,9 +181,20 @@ void UClientLocalPlayerSubsystem::RecvGateCallback(uint32 ProtocolNumber, FNetCh
 {
 	switch (ProtocolNumber)
 	{
+		/*
+		* 注册结果
+		*/
 		case P_RegisterSuccess:
 		{
-			OnClientRegisterComplete.Broadcast(true);
+			if (PersonaUserInfo.Platform == TEXT("STEAM"))
+			{
+				LoginGate(PersonaUserInfo.Account, PersonaUserInfo.Password);
+				OnClientTmpMessage.Broadcast(TEXT("Register Success, Logining in..."), TEXT("Success"));
+			}
+			else
+			{
+				OnClientRegisterComplete.Broadcast(true);
+			}
 			break;
 		}
 		case P_RegisterFailure:
@@ -206,7 +212,7 @@ void UClientLocalPlayerSubsystem::RecvGateCallback(uint32 ProtocolNumber, FNetCh
 			FTimerHandle TimerHandle;
 			GetWorld()->GetTimerManager().SetTimer(
 				TimerHandle,
-				[this]() { TryRegister(); },
+				[this]() { RegisterAccount(PersonaUserInfo); },
 				1.f,
 				false
 			);
@@ -217,6 +223,10 @@ void UClientLocalPlayerSubsystem::RecvGateCallback(uint32 ProtocolNumber, FNetCh
 			OnClientAccountAlreadyExits.Broadcast();
 			break;
 		}
+
+		/*
+		* 登录结果
+		*/
 		case P_LoginSuccess:
 		{
 			FNetServerInfo HallServerInfo;
@@ -229,7 +239,7 @@ void UClientLocalPlayerSubsystem::RecvGateCallback(uint32 ProtocolNumber, FNetCh
 				Client->GetController()->RecvDelegate.AddUObject(this, &ThisClass::RecvHallCallback);
 			}
 			ReconnectTimes = 0;
-			LoginWaitTime = 0;
+			ConnectWaitTime = 0;
 			break;
 		}
 		case P_LoginFailure:
@@ -246,28 +256,38 @@ void UClientLocalPlayerSubsystem::RecvGateCallback(uint32 ProtocolNumber, FNetCh
 			FTimerHandle TimerHandle;
 			GetWorld()->GetTimerManager().SetTimer(
 				TimerHandle, 
-				[this]() { TryLoginGate(); }, 
+				[this]() { LoginGate(PersonaUserInfo.Account, PersonaUserInfo.Password); }, 
 				1.f, 
 				false
 			);
 			break;
 		}
-		case P_IncorrectPassword:
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString(TEXT("IncorrectPassword")));
-			break;
-		}
 		case P_AbsentAccount:
 		{
-			OnClientAbsentAccount.Broadcast();
+			if (PersonaUserInfo.Platform == TEXT("STEAM"))
+			{
+				RegisterAccount(PersonaUserInfo);
+				
+			}
+			else
+			{
+				OnClientAbsentAccount.Broadcast();
+			}
 			break;
 		}
 		case P_AbnormalAccount:
 		{
+			OnClientAbnormalAccount.Broadcast();
+			break;
+		}
+		case P_IncorrectPassword:
+		{
+			OnClientIncorrectPassword.Broadcast();
 			break;
 		}
 		case P_VerificationError:
 		{
+			OnClientVerificationError.Broadcast();
 			break;
 		}
 	}
@@ -298,7 +318,7 @@ void UClientLocalPlayerSubsystem::RecvHallCallback(uint32 ProtocolNumber, FNetCh
 			FTimerHandle TimerHandle;
 			GetWorld()->GetTimerManager().SetTimer(
 				TimerHandle,
-				[this]() { TryLoginHall(); },
+				[this]() { LoginHall(); },
 				1.f,
 				false
 			);
